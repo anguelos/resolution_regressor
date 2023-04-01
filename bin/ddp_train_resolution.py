@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -22,43 +23,15 @@ import fargv
 import pandas as pd
 
 
-p = {
-    "epochs": 100,
-    "batch_size": 32,
-    "lr": 1e-3,
-    "image_size": 512,
-    "num_workers": 4,
-    "device": "cuda",
-    "arch": [("resnet50","resnet18", "resnet34"), "The neural network head used"],
-    "input_class": [("WritableArea","Seal", "CalibrationCard", "full"),"This is case censitive and should match what is on the filesystem for croped images."],
-    "resume_path": "./data/models/res{arch}_{input_class}.pth",
-    "weight_decay": 1e-4,
-    "outlier_quantile": .2,
-    "train_fraction": .8,
-    "gt_paths": set({}),
-    "gt_glob": "../../1000_CVCharters/*/*/*/*.seals.crops/*.resolution.gt.json",
-    "class_glob_regex": "[0-9]+\.resolution\.gt\.json",
-    "class_glob_replace": "*.Img_{input_class}.jpg",
-    "augment_scale_range": "[1.0, 1.0]",
-}
-
-try:
-    args, _ = fargv.fargv(p)
-except KeyError:
-    args, _ = fargv.fargv(p, argv=["ipython"])
-if args.input_class == "full":
-    args.class_glob_regex = "[0-9a-f]+\.seals.crops/[0-9]+\.resolution\.gt\.json"
-    args.class_glob_replace = ".img.*"
-
 class ResResNet(nn.Module):
-    def __init__(self, variant="resnet18"):
+    def __init__(self, variant="resnet18", pretrained=True):
         super(ResResNet, self).__init__()
         if variant == "resnet18":
-            self.resnet = resnet18(pretrained=True)
+            self.resnet = resnet18(pretrained=pretrained)
         elif variant == "resnet34":
-            self.resnet = resnet34(pretrained=True)
+            self.resnet = resnet34(pretrained=pretrained)
         elif variant == "resnet50":
-            self.variant = resnet50(pretrained=True)
+            self.resnet = resnet50(pretrained=pretrained)
         self.fc1 = nn.Linear(512, 256)
         self.fc2 = nn.Linear(256, 1)
 
@@ -117,7 +90,7 @@ def predict_img(img,size, model, outlier_quantile=.2):
         predictions = model(batch)
         predictions = predictions.cpu().numpy()
         predictions = predictions.reshape(-1)
-        #return np.median(predictions)
+        return np.median(predictions)
         if predictions.shape[0]*outlier_quantile > 1:
             outlier_threshold = np.quantile(predictions, 1-outlier_quantile)
             predictions = predictions[predictions < outlier_threshold]
@@ -153,8 +126,9 @@ class ScaleDataset:
 
     def __init__(self, resolution_gt_list=[],
                 resolution_gt_glob="",
-                input_glob_subtuple=(args.class_glob_regex, args.class_glob_replace),
-                input_transform=simple_input_transform, augment_scale_range=(1.,1.)
+                input_glob_subtuple=("",""), #(args.class_glob_regex, args.class_glob_replace),
+                input_transform=simple_input_transform, 
+                augment_scale_range=(1.,1.)
                 ):
         """_summary_
 
@@ -185,10 +159,11 @@ class ScaleDataset:
 
     def __getitem__(self, n):
         img = Image.open(self.image_paths[n])
-        w, h = img.size
-        scale = random.uniform(*self.augment_scale_range)
-        img = img.resize((int(w*scale), int(h*scale)))
-        return self.input_transform(img), self.ppcms[n] * scale
+        #w, h = img.size
+        #scale = random.uniform(*self.augment_scale_range)
+        #img = img.resize((int(w*scale), int(h*scale)))
+        #return self.input_transform(img), self.ppcms[n] * scale
+        self.input_transform(img), self.ppcms[n]
     
     def __len__(self):
         return len(self.ppcms)
@@ -209,7 +184,8 @@ class ScaleDataset:
         return ds1, ds2
 
 
-def resume(path, model, device):
+def resume(path, model_arch, device):
+    model = ResResNet(variant=model_arch, pretrained=False)
     if not torch.cuda.is_available():
         device = "cpu"
     checkpoint = torch.load(path, map_location=device)
@@ -220,7 +196,7 @@ def resume(path, model, device):
     return model, epoch, hist, arg_hist
 
 
-def save(path, model, epoch, hist, arg_hist=None):
+def save(path, model, epoch, hist, args, arg_hist=None):
     if arg_hist is None:
         arg_hist = {epoch: args}
     else:
@@ -233,7 +209,7 @@ def save(path, model, epoch, hist, arg_hist=None):
     }, path)
 
 
-if __name__ == "__main__":
+def train_main(args):
     device = args.device
     if args.gt_glob != "":
         gt_paths = list(sorted(set(args.gt_paths).union(set(glob.glob(args.gt_glob)))))
@@ -310,3 +286,45 @@ if __name__ == "__main__":
         hist["val"].append(val_loss/len(val_dataset))
         hist["val_clean"].append(((gt-clean_predictions)**2).mean())
         save(args.resume_path, model, epoch, hist, arg_hist=arg_hist)
+
+def inference_main(args):
+    raise NotImplementedError("Inference not implemented yet")
+
+
+p = {
+    "mode": [("train", "inference"), "The mode to run in"],
+    "epochs": 100,
+    "batch_size": 32,
+    "lr": 1e-3,
+    "image_size": 512,
+    "num_workers": 4,
+    "device": "cuda",
+    "arch": [("resnet50","resnet18", "resnet34"), "The neural network head used"],
+    "input_class": [("WritableArea","Seal", "CalibrationCard", "full"),"This is case censitive and should match what is on the filesystem for croped images."],
+    "resume_path": "./data/models/res{arch}_{input_class}.pth",
+    "weight_decay": 1e-4,
+    "outlier_quantile": .2,
+    "train_fraction": .8,
+    "gt_paths": set({}),
+    "gt_glob": "", #"../../1000_CVCharters/*/*/*/*.seals.crops/*.resolution.gt.json",
+    "class_glob_regex": "[0-9]+\.resolution\.gt\.json",
+    "class_glob_replace": "*.Img_{input_class}.jpg",
+    "augment_scale_range": "[1.0, 1.0]",
+}
+
+
+try:
+    args, _ = fargv.fargv(p)
+except KeyError:
+    args, _ = fargv.fargv(p, argv=["ipython"])
+
+if args.input_class == "full":
+    args.class_glob_regex = "[0-9a-f]+\.seals.crops/[0-9]+\.resolution\.gt\.json"
+    args.class_glob_replace = ".img.*"
+
+
+if __name__ == "__main__":
+    if args.mode == "train":
+        train_main(args)
+    elif args.mode == "inference":
+        inference_main(args)
