@@ -60,8 +60,6 @@ def train_main(args):
                              input_transform=test_input_transform)
     train_dataset, val_dataset = data.split(fraction=.8, shuffle=True, seed=1337)
     train_dataset.input_transform = train_input_transform
-    #print(args.gt_paths)
-    #print(data)
     #ds_items = sorted([f"{train_dataset.image_paths[n]}\t{train_dataset.ppcms[n]}" for n in range(len(train_dataset))])
     #print("\n".join(ds_items))
     #sys.exit(0)
@@ -109,7 +107,7 @@ def train_main(args):
                 inputs, labels = inputs.to(device), labels.to(device)
                 outputs = model(inputs)
                 predictions.append(outputs.view(-1).cpu().detach().numpy())
-                clean_predictions.append(model.predict_img(inputs[0,:,:,:], size=args.image_size, model=model, outlier_quantile=args.outlier_quantile))
+                clean_predictions.append(model.predict_img(inputs[0,:,:,:], size=args.image_size, outlier_quantile=args.outlier_quantile))
                 gt.append(labels.view(-1).cpu().detach().numpy())
                 loss = criterion(outputs, labels.float()[:, None])
                 val_loss += loss.item() * inputs.size(0)
@@ -130,9 +128,6 @@ def train_main(args):
 
 def inference_main(args):
     raise NotImplementedError("Inference not implemented yet")
-
-
-
 
 
 try:

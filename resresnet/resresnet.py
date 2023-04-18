@@ -10,12 +10,11 @@ import fargv
 class ResResNet(nn.Module):
     @staticmethod
     def resume(path, model_arch, device):
-        model = ResResNet(variant=model_arch, pretrained=False)
+        model = ResResNet(variant=model_arch, pretrained=True)
         if not torch.cuda.is_available():
             device = "cpu"
         try:
             checkpoint = torch.load(path, map_location=device)
-            print("Before Load:",checkpoint)
             model.load_state_dict(checkpoint["model_state_dict"])
             del checkpoint["model_state_dict"]
             epoch = checkpoint["epoch"]
@@ -27,6 +26,7 @@ class ResResNet(nn.Module):
             arg_hist = {}
             epoch = 0
             checkpoint = {"hist": hist, "arg_hist": arg_hist, "epoch": epoch}
+        model = model.to(device)
         return model, checkpoint, (epoch, hist, arg_hist)
 
 
@@ -52,11 +52,13 @@ class ResResNet(nn.Module):
         super(ResResNet, self).__init__()
         if variant == "resnet18":
             self.resnet = resnet18(pretrained=pretrained)
+            self.fc1 = nn.Linear(512, 256)
         elif variant == "resnet34":
             self.resnet = resnet34(pretrained=pretrained)
+            self.fc1 = nn.Linear(512, 256)
         elif variant == "resnet50":
             self.resnet = resnet50(pretrained=pretrained)
-        self.fc1 = nn.Linear(512, 256)
+            self.fc1 = nn.Linear(2048, 256)
         self.fc2 = nn.Linear(256, 1)
 
 
@@ -94,7 +96,8 @@ class ResResNet(nn.Module):
             return predictions.mean()
     
 
-    def save(self, path, epoch, hist, arg_hist):
+    def save(self, path, epoch, hist, args, arg_hist):
+        arg_hist[epoch] = args
         torch.save({
             "epoch": epoch,
             "model_state_dict": self.state_dict(),
